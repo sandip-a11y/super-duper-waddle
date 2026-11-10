@@ -1,6 +1,5 @@
 package com.inkmode
 
-import android.Manifest
 import android.app.Activity
 import android.app.NotificationManager
 import android.app.UiModeManager
@@ -12,6 +11,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.widget.LinearLayout
 import android.widget.Toast
@@ -22,6 +22,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        SwitcherService.startIfReady(this)
         render()
     }
 
@@ -33,34 +34,29 @@ class MainActivity : Activity() {
         col.addView(Ui.text(this, "E-paper look for your phone. Do the setup steps in order.", 16f, faint = true))
 
         section("Setup")
-        step("1. Allow restricted settings", null,
-            "Needed before steps 2 and 4 can be turned on. On the next screen tap ⋮ (top right) → Allow restricted settings. " +
-                "If you don't see ⋮, try step 2 first: Android shows the option after it blocks you once.") {
-            open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-        }
-        step("2. Turn on the colour switch", watcherOn(),
-            "Settings → Accessibility → Inkmode colour switch → on.") {
-            open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        }
-        step("3. Allow Do Not Disturb access", Grayscale.hasAccess(this),
+        step("1. Allow Do Not Disturb access", Grayscale.hasAccess(this),
             "Lets Inkmode switch grayscale. It never silences anything.") {
             open(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
         }
-        step("4. Allow notification access", listenerOn(),
-            "Only needed for notification batching.") {
-            open(Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
-                .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
-                    ComponentName(this, NotificationBatcher::class.java).flattenToString()),
-                fallback = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        step("2. Allow usage access", SwitcherService.hasUsageAccess(this),
+            "Lets Inkmode see which app is open. If the switch is greyed out: App info → ⋮ (top right) → Allow restricted settings, then try again.") {
+            open(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, Uri.parse("package:$packageName")),
+                fallback = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
         }
-        step("5. Allow Inkmode's own notifications", notifPermission(),
-            "So the batched digest can be shown.") {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        step("3. Let Inkmode run in the background", ignoresBatteryLimits(),
+            "Choose Allow, or Battery → Unrestricted. Without it the phone may stop the colour switch.") {
+            @Suppress("BatteryLife")
+            open(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")),
+                fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
         }
-        step("6. Make Inkmode your home screen", isHome(), null) {
+        step("4. Make Inkmode your home screen", isHome(), null) {
             val rm = getSystemService(RoleManager::class.java)
             startActivityForResult(rm.createRequestRoleIntent(RoleManager.ROLE_HOME), 2)
         }
+        val running = SwitcherService.instance != null
+        col.addView(Ui.text(this,
+            if (running) "Colour switch: running" else "Colour switch: starts when steps 1–2 are done",
+            15f, faint = !running))
 
         section("Phone settings (one-time, you change these)")
         val animOff = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
@@ -90,34 +86,20 @@ class MainActivity : Activity() {
         section("E-paper look")
         toggle("Grayscale outside colour apps", prefs.enabled) {
             prefs.enabled = !prefs.enabled
+            if (prefs.enabled) SwitcherService.startIfReady(this) else SwitcherService.stop(this)
             if (!prefs.enabled) Grayscale.set(this, false, force = true)
-            ForegroundWatcher.refresh()
         }
         val colourNames = prefs.colourApps.mapNotNull { Apps.label(this, it) }.sorted()
-        col.addView(Ui.link(this, "Colour apps (${colourNames.size})") { picker(AppPickerActivity.MODE_COLOUR) })
+        col.addView(Ui.link(this, "Colour apps (${colourNames.size})") {
+            open(Intent(this, AppPickerActivity::class.java))
+        })
         col.addView(Ui.text(this, colourNames.joinToString(", ").ifBlank { "None" }, 14f, faint = true))
         col.addView(Ui.link(this, "Test grayscale for 5 seconds") { testGrayscale() })
-
-        section("Notification batching")
-        toggle("Hold notifications and deliver them in batches", prefs.batching) {
-            prefs.batching = !prefs.batching
-            Digest.schedule(this)
-        }
-        col.addView(Ui.link(this, "Deliver every ${prefs.batchMinutes} minutes (tap to change)") {
-            val c = Prefs.BATCH_CHOICES
-            prefs.batchMinutes = c[(c.indexOf(prefs.batchMinutes) + 1) % c.size]
-            Digest.schedule(this)
-            render()
-        })
-        col.addView(Ui.link(this, "Always let through (${prefs.letThrough.count { Apps.isLaunchable(this, it) }} apps)") {
-            picker(AppPickerActivity.MODE_LET_THROUGH)
-        })
-        col.addView(Ui.link(this, "Held notifications (${HeldStore.count(this)})") { open(Intent(this, HeldActivity::class.java)) })
 
         section("Undo")
         col.addView(Ui.link(this, "Turn everything off") { undoAll() })
         col.addView(Ui.text(this,
-            "Stops grayscale, removes Inkmode's Mode and stops batching. To get your old home screen back, " +
+            "Stops grayscale and removes Inkmode's Mode. To get your old home screen back, " +
                 "pick it in Settings → Apps → Default apps → Home app.", 14f, faint = true))
     }
 
@@ -137,9 +119,6 @@ class MainActivity : Activity() {
         col.addView(Ui.link(this, "${if (on) "On" else "Off"} · $title") { flip(); render() })
     }
 
-    private fun picker(mode: String) =
-        open(Intent(this, AppPickerActivity::class.java).putExtra(AppPickerActivity.EXTRA_MODE, mode))
-
     private fun open(i: Intent, fallback: Intent? = null) {
         try { startActivity(i) } catch (_: Exception) {
             try { if (fallback != null) startActivity(fallback) } catch (_: Exception) {
@@ -148,24 +127,14 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun watcherOn(): Boolean {
-        val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: ""
-        val me = ComponentName(this, ForegroundWatcher::class.java)
-        return enabled.split(':').any { ComponentName.unflattenFromString(it) == me }
-    }
-
-    private fun listenerOn(): Boolean =
-        getSystemService(NotificationManager::class.java)
-            .isNotificationListenerAccessGranted(ComponentName(this, NotificationBatcher::class.java))
-
-    private fun notifPermission() =
-        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    private fun ignoresBatteryLimits() =
+        getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
 
     private fun isHome() = getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_HOME)
 
     private fun testGrayscale() {
         if (!Grayscale.hasAccess(this)) {
-            Toast.makeText(this, "Do step 3 first", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Do step 1 first", Toast.LENGTH_LONG).show()
             return
         }
         if (!Grayscale.set(this, true, force = true)) {
@@ -175,7 +144,7 @@ class MainActivity : Activity() {
         Toast.makeText(this, "Grayscale on for 5 seconds", Toast.LENGTH_SHORT).show()
         Handler(Looper.getMainLooper()).postDelayed({
             // Back to whatever the switch would choose (this screen itself is grayscale when set up).
-            val keepOn = ForegroundWatcher.instance != null && Prefs(this).enabled
+            val keepOn = SwitcherService.instance != null && Prefs(this).enabled
             Grayscale.set(this, keepOn, force = true)
         }, 5000)
     }
@@ -183,22 +152,16 @@ class MainActivity : Activity() {
     private fun undoAll() {
         val prefs = Prefs(this)
         prefs.enabled = false
-        prefs.batching = false
+        SwitcherService.stop(this)
         Grayscale.set(this, false, force = true)
         Grayscale.remove(this)
-        Digest.schedule(this)
-        Toast.makeText(this, "Inkmode is off. You can also turn off its accessibility service.", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "Inkmode is off.", Toast.LENGTH_LONG).show()
         render()
     }
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        render()
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         render()
     }
 }

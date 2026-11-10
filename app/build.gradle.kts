@@ -12,8 +12,8 @@ android {
         // Android 15 (API 35) is the first version that lets an app's Mode turn on grayscale.
         minSdk = 35
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     // A fixed key so each new build installs as an update instead of needing an uninstall.

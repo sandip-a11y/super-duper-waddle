@@ -21,7 +21,6 @@ import android.window.OnBackInvokedDispatcher
 class HomeActivity : Activity() {
     private lateinit var battery: TextView
     private lateinit var appList: LinearLayout
-    private lateinit var held: TextView
 
     private val batteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) = showBattery(i)
@@ -61,8 +60,6 @@ class HomeActivity : Activity() {
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val weight = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         bottom.addView(Ui.link(this, "all apps", 16f) { open(AllAppsActivity::class.java) }, weight)
-        held = Ui.link(this, "held", 16f) { open(HeldActivity::class.java) }.apply { gravity = Gravity.CENTER_HORIZONTAL }
-        bottom.addView(held, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         bottom.addView(Ui.link(this, "settings", 16f) { open(MainActivity::class.java) }.apply { gravity = Gravity.END }, weight)
         root.addView(bottom)
 
@@ -78,9 +75,7 @@ class HomeActivity : Activity() {
         registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED), Context.RECEIVER_NOT_EXPORTED)
             ?.let { showBattery(it) }
         showApps()
-        val n = HeldStore.count(this)
-        held.text = if (n > 0) "held ($n)" else "held"
-        held.visibility = if (Prefs(this).batching || n > 0) View.VISIBLE else View.INVISIBLE
+        SwitcherService.startIfReady(this)
     }
 
     override fun onPause() {

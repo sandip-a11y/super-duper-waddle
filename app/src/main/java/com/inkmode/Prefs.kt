@@ -27,20 +27,6 @@ class Prefs(context: Context) {
         get() = sp.getString("rule_id", null)
         set(v) = sp.edit().putString("rule_id", v).apply()
 
-    /** Off by default so a fresh install never hides notifications without the user asking. */
-    var batching: Boolean
-        get() = sp.getBoolean("batching", false)
-        set(v) = sp.edit().putBoolean("batching", v).apply()
-
-    var batchMinutes: Int
-        get() = sp.getInt("batch_minutes", 60)
-        set(v) = sp.edit().putInt("batch_minutes", v).apply()
-
-    /** Apps whose notifications are never held back. */
-    var letThrough: Set<String>
-        get() = sp.getStringSet("let_through", null)?.toSet() ?: DEFAULT_LET_THROUGH
-        set(v) = sp.edit().putStringSet("let_through", v).apply()
-
     companion object {
         val DEFAULT_COLOUR_APPS = setOf(
             "com.google.android.youtube",
@@ -48,16 +34,5 @@ class Prefs(context: Context) {
             "com.whatsapp",
             "com.google.android.gm",
         )
-        val DEFAULT_LET_THROUGH = setOf(
-            "com.whatsapp",
-            // SMS app, so one-time passwords arrive straight away.
-            "com.google.android.apps.messaging",
-            "com.google.android.dialer",
-            "com.android.phone",
-            "com.android.server.telecom",
-            "com.android.systemui",
-            "android",
-        )
-        val BATCH_CHOICES = listOf(30, 60, 120)
     }
 }

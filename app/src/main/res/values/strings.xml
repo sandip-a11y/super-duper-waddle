@@ -2,8 +2,5 @@
 <resources>
     <string name="app_name">Inkmode</string>
     <string name="home_name">Inkmode home</string>
-    <string name="a11y_label">Inkmode colour switch</string>
-    <string name="a11y_desc">Inkmode only checks which app is open, so it can turn grayscale off in your colour apps and back on everywhere else. It does not read anything on screen.</string>
-    <string name="batcher_label">Inkmode notification batching</string>
     <string name="mode_name">Inkmode grayscale</string>
 </resources>
