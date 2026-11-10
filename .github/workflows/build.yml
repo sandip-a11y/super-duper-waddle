@@ -1,0 +1,43 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Build
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: inkmode-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      # A fixed download link you can open on the phone: .../releases/download/inkmode-latest/Inkmode.apk
+      - name: Publish to the inkmode-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Inkmode.apk
+          gh release delete inkmode-latest --yes --cleanup-tag || true
+          gh release create inkmode-latest Inkmode.apk \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Inkmode (latest build)" \
+            --notes "Built from ${GITHUB_REF_NAME} at ${GITHUB_SHA}. Download Inkmode.apk on your phone and open it to install."

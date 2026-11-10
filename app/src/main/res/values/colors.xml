@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Warm grey, not white: easier on the eyes and cheaper on P-OLED than pure white. -->
+    <color name="paper">#E4E0D6</color>
+    <color name="ink">#1C1C1C</color>
+    <color name="faint">#7E7A72</color>
+    <color name="icon_bg">#E4E0D6</color>
+    <color name="icon_ink">#1C1C1C</color>
+</resources>
